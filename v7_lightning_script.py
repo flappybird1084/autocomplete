@@ -11,6 +11,9 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
+# Import TensorBoard logger
+from pytorch_lightning.loggers import TensorBoardLogger
+
 # Boolean hyperparameters
 LOAD_PREVIOUS = True  # Load previous model checkpoint
 SAVE_ON_INTERRUPT = True  # Save model when training is interrupted
@@ -327,12 +330,16 @@ def main():
 
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
 
+    # Initialize TensorBoard logger
+    logger = TensorBoardLogger("tb_logs", name="gpt-v7-lightning")
+
     # Initialize trainer
     trainer = pl.Trainer(
         max_steps=MAX_ITERS,
         val_check_interval=EVAL_INTERVAL,
         limit_val_batches=EVAL_ITERS,  # Limit the number of validation batches
         callbacks=[checkpoint_callback, lr_monitor],
+        logger=logger,  # Add TensorBoard logger
         precision='16-mixed',  # Use mixed precision for faster training
         accumulate_grad_batches=1,  # Gradient accumulation if needed
         gradient_clip_val=1.0,  # Gradient clipping for stability
