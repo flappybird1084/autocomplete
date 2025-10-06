@@ -16,7 +16,7 @@ LOAD_PREVIOUS = True  # Load previous model checkpoint
 SAVE_ON_INTERRUPT = True  # Save model when training is interrupted
 
 # Hyperparameters as constants
-BATCH_SIZE = 24
+BATCH_SIZE = 32
 BLOCK_SIZE = 256
 MAX_ITERS = int(160000 * 64 / BATCH_SIZE)
 LEARNING_RATE = 3e-4
@@ -28,6 +28,7 @@ N_LAYER = 6
 DROPOUT = 0.2
 SLIDING_WINDOW_LEN = 128
 
+
 class OpenWebTextDataset(Dataset):
     def __init__(self, split="train", max_articles=None):
         self.dataset = load_dataset("Bingsu/openwebtext_20p")
@@ -36,7 +37,7 @@ class OpenWebTextDataset(Dataset):
         self.num_articles = len(self.data)
         if max_articles:
             self.num_articles = min(self.num_articles, max_articles)
-        
+
         # Set up encoding/decoding
         self.encoder = tiktoken.get_encoding("gpt2")
         self.vocab_size = self.encoder.n_vocab
@@ -49,24 +50,25 @@ class OpenWebTextDataset(Dataset):
         # Randomly sample an article
         article_idx = torch.randint(0, self.num_articles, (1,)).item()
         article = self.data[article_idx]["text"]
-        
+
         # Encode the article
         article_ids = self.encoder.encode(article)
-        
+
         # If the article is too short, concatenate with more articles
         while len(article_ids) < BLOCK_SIZE + 2:
             additional_idx = torch.randint(0, self.num_articles, (1,)).item()
             additional_article = self.data[additional_idx]["text"]
             article_ids.extend(self.encoder.encode(additional_article))
-        
+
         # Randomly select a sequence of block_size + 1 tokens
-        start_idx = torch.randint(0, len(article_ids) - BLOCK_SIZE - 1, (1,)).item()
-        sequence = article_ids[start_idx : start_idx + BLOCK_SIZE + 1]
-        
+        start_idx = torch.randint(
+            0, len(article_ids) - BLOCK_SIZE - 1, (1,)).item()
+        sequence = article_ids[start_idx: start_idx + BLOCK_SIZE + 1]
+
         # Split into input and target
         x = torch.tensor(sequence[:-1], dtype=torch.long)
         y = torch.tensor(sequence[1:], dtype=torch.long)
-        
+
         return x, y
 
 
@@ -84,7 +86,7 @@ class FlashAttentionHead(nn.Module):
         k = self.key(x)  # (B, T, head_size)
         q = self.query(x)
         value = self.value(x)  # (B, T, head_size)
-        
+
         output = F.scaled_dot_product_attention(
             q, k, value, attn_mask=None, dropout_p=DROPOUT, is_causal=True
         )
@@ -96,7 +98,8 @@ class FlashAttentionHead(nn.Module):
 class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
-        self.heads = nn.ModuleList([FlashAttentionHead(head_size) for _ in range(num_heads)])
+        self.heads = nn.ModuleList(
+            [FlashAttentionHead(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(head_size * num_heads, N_EMBD)
         self.dropout = nn.Dropout(DROPOUT)
 
@@ -186,18 +189,20 @@ class GPT(pl.LightningModule):
     def __init__(self, vocab_size):
         super().__init__()
         self.save_hyperparameters()
-        
+
         self.token_embed_table = nn.Embedding(vocab_size, N_EMBD)
         self.position_embed_table = nn.Embedding(BLOCK_SIZE, N_EMBD)
-        self.blocks = nn.Sequential(*[Block(N_EMBD, N_HEAD) for _ in range(N_LAYER)])
+        self.blocks = nn.Sequential(
+            *[Block(N_EMBD, N_HEAD) for _ in range(N_LAYER)])
         self.ln_f = nn.LayerNorm(N_EMBD)  # final layer norm
         self.lm_head = nn.Linear(N_EMBD, vocab_size)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
         token_emb = self.token_embed_table(idx)  # (B, T, N_EMBD)
-        position_emb = self.position_embed_table(torch.arange(T, device=idx.device))
-        
+        position_emb = self.position_embed_table(
+            torch.arange(T, device=idx.device))
+
         x = token_emb + position_emb  # (B, T, N_EMBD)
         x = self.blocks(x)  # (B, T, N_EMBD)
         x = self.ln_f(x)  # (B, T, N_EMBD)
@@ -216,13 +221,15 @@ class GPT(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         logits, loss = self(x, y)
-        self.log('train_loss', loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True)
+        self.log('train_loss', loss, prog_bar=True,
+                 on_step=True, on_epoch=False, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         _, loss = self(x, y)
-        self.log('val_loss', loss, prog_bar=True, on_step=False, on_epoch=True, sync_dist=True)
+        self.log('val_loss', loss, prog_bar=True,
+                 on_step=False, on_epoch=True, sync_dist=True)
         return loss
 
     def configure_optimizers(self):
@@ -259,7 +266,8 @@ class OpenWebTextDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
         self.train_dataset = OpenWebTextDataset(split="train")
-        self.val_dataset = OpenWebTextDataset(split="train")  # Using train split for validation since OpenWebText doesn't have validation
+        # Using train split for validation since OpenWebText doesn't have validation
+        self.val_dataset = OpenWebTextDataset(split="train")
 
     def train_dataloader(self):
         return DataLoader(
@@ -284,10 +292,10 @@ def main():
     # Setup
     encoder = tiktoken.get_encoding("gpt2")
     vocab_size = encoder.n_vocab
-    
+
     # Initialize data module
     data_module = OpenWebTextDataModule(batch_size=BATCH_SIZE)
-    
+
     # Check if a previous model exists to load based on hyperparameter
     checkpoint_path = './models/model_v6_flash_attn.pth'
     if LOAD_PREVIOUS and os.path.exists(checkpoint_path):
@@ -295,12 +303,13 @@ def main():
         # Load the model state dict manually to initialize the model
         model = GPT(vocab_size=vocab_size)
         state_dict = torch.load(checkpoint_path, map_location='cpu')
-        model.load_state_dict(state_dict, strict=False)  # Use strict=False to handle potential mismatches
+        # Use strict=False to handle potential mismatches
+        model.load_state_dict(state_dict, strict=False)
         print("Previous checkpoint loaded successfully")
     else:
         print("Starting with a new model...")
         model = GPT(vocab_size=vocab_size)
-    
+
     # Callbacks
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         dirpath='models/',
@@ -310,9 +319,9 @@ def main():
         mode='min',
         every_n_train_steps=500,  # Save checkpoint every 500 steps
     )
-    
+
     lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
-    
+
     # Initialize trainer
     trainer = pl.Trainer(
         max_steps=MAX_ITERS,
@@ -329,27 +338,27 @@ def main():
         deterministic=False,  # Set to True for reproducibility but may impact performance
         resume_from_checkpoint=None,  # Can be set to a checkpoint path to resume training
     )
-    
+
     # Enable memory optimizations
     torch.set_float32_matmul_precision("high")
-    
+
     # Compile the model for further optimization (PyTorch 2.0+)
     try:
         model = torch.compile(model)
         print("Model compiled successfully with torch.compile")
     except Exception as e:
         print(f"Could not compile model: {e}")
-    
+
     # Start training with interrupt handling
     try:
         trainer.fit(model, datamodule=data_module)
-        
+
         # Save final model after training
         final_model_path = './models/model_v7_lightning.pth'
         os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
         torch.save(model.state_dict(), final_model_path)
         print(f"\nModel state saved after training: {final_model_path}")
-        
+
     except KeyboardInterrupt:
         if SAVE_ON_INTERRUPT:
             print("\nTraining interrupted by user. Saving model...")
@@ -359,7 +368,7 @@ def main():
             print(f"\nModel state saved: {final_model_path}")
         else:
             print("\nTraining interrupted by user. Model not saved.")
-    
+
     finally:
         if SAVE_ON_INTERRUPT:
             # Make sure final checkpoint is saved
