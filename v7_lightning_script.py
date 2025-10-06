@@ -336,7 +336,7 @@ def main():
         log_every_n_steps=10,
         enable_progress_bar=True,
         deterministic=False,  # Set to True for reproducibility but may impact performance
-        resume_from_checkpoint=None,  # Can be set to a checkpoint path to resume training
+        # resume_from_checkpoint=None,  # Can be set to a checkpoint path to resume training
     )
 
     # Enable memory optimizations
