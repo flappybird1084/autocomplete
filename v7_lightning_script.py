@@ -16,11 +16,11 @@ LOAD_PREVIOUS = True  # Load previous model checkpoint
 SAVE_ON_INTERRUPT = True  # Save model when training is interrupted
 
 # Hyperparameters as constants
-BATCH_SIZE = 32
+BATCH_SIZE = 40
 BLOCK_SIZE = 256
 MAX_ITERS = int(160000 * 64 / BATCH_SIZE)
 LEARNING_RATE = 3e-4
-EVAL_INTERVAL = 500
+EVAL_INTERVAL = BATCH_SIZE/2
 EVAL_ITERS = 200
 N_EMBD = 384
 N_HEAD = 6
