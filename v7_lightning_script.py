@@ -9,7 +9,8 @@ import math
 import os
 from tqdm import tqdm
 import warnings
-warnings.filterwarnings('ignore')
+
+warnings.filterwarnings("ignore")
 
 # Import TensorBoard logger
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -21,7 +22,7 @@ SAVE_ON_INTERRUPT = True  # Save model when training is interrupted
 # Hyperparameters as constants
 BATCH_SIZE = 40
 BLOCK_SIZE = 256
-MAX_ITERS = int(160000 * 64 / BATCH_SIZE)
+MAX_ITERS = int(480000 * 64 / BATCH_SIZE)
 LEARNING_RATE = 3e-4
 EVAL_INTERVAL = 20  # Reduced from BATCH_SIZE/2
 EVAL_ITERS = 5  # Reduced significantly from 200
@@ -68,9 +69,8 @@ class OpenWebTextDataset(Dataset):
             article_ids.extend(self.encoder.encode(additional_article))
 
         # Randomly select a sequence of block_size + 1 tokens
-        start_idx = torch.randint(
-            0, len(article_ids) - BLOCK_SIZE - 1, (1,)).item()
-        sequence = article_ids[start_idx: start_idx + BLOCK_SIZE + 1]
+        start_idx = torch.randint(0, len(article_ids) - BLOCK_SIZE - 1, (1,)).item()
+        sequence = article_ids[start_idx : start_idx + BLOCK_SIZE + 1]
 
         # Split into input and target
         x = torch.tensor(sequence[:-1], dtype=torch.long)
@@ -106,7 +106,8 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList(
-            [FlashAttentionHead(head_size) for _ in range(num_heads)])
+            [FlashAttentionHead(head_size) for _ in range(num_heads)]
+        )
         self.proj = nn.Linear(head_size * num_heads, N_EMBD)
         self.dropout = nn.Dropout(DROPOUT)
 
@@ -199,16 +200,14 @@ class GPT(pl.LightningModule):
 
         self.token_embed_table = nn.Embedding(vocab_size, N_EMBD)
         self.position_embed_table = nn.Embedding(BLOCK_SIZE, N_EMBD)
-        self.blocks = nn.Sequential(
-            *[Block(N_EMBD, N_HEAD) for _ in range(N_LAYER)])
+        self.blocks = nn.Sequential(*[Block(N_EMBD, N_HEAD) for _ in range(N_LAYER)])
         self.ln_f = nn.LayerNorm(N_EMBD)  # final layer norm
         self.lm_head = nn.Linear(N_EMBD, vocab_size)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
         token_emb = self.token_embed_table(idx)  # (B, T, N_EMBD)
-        position_emb = self.position_embed_table(
-            torch.arange(T, device=idx.device))
+        position_emb = self.position_embed_table(torch.arange(T, device=idx.device))
 
         x = token_emb + position_emb  # (B, T, N_EMBD)
         x = self.blocks(x)  # (B, T, N_EMBD)
@@ -228,15 +227,27 @@ class GPT(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         logits, loss = self(x, y)
-        self.log('train_loss', loss, prog_bar=True,
-                 on_step=True, on_epoch=False, sync_dist=True)
+        self.log(
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=False,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         _, loss = self(x, y)
-        self.log('val_loss', loss, prog_bar=True,
-                 on_step=False, on_epoch=True, sync_dist=True)
+        self.log(
+            "val_loss",
+            loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
         return loss
 
     def configure_optimizers(self):
@@ -265,7 +276,9 @@ class GPT(pl.LightningModule):
 
 
 class OpenWebTextDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size=BATCH_SIZE, val_batch_size=BATCH_SIZE//4, num_workers=4):
+    def __init__(
+        self, batch_size=BATCH_SIZE, val_batch_size=BATCH_SIZE // 4, num_workers=4
+    ):
         super().__init__()
         self.batch_size = batch_size
         self.val_batch_size = val_batch_size
@@ -283,7 +296,7 @@ class OpenWebTextDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True
+            persistent_workers=True,
         )
 
     def val_dataloader(self):
@@ -292,7 +305,7 @@ class OpenWebTextDataModule(pl.LightningDataModule):
             batch_size=self.val_batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            persistent_workers=True
+            persistent_workers=True,
         )
 
 
@@ -302,15 +315,17 @@ def main():
     vocab_size = encoder.n_vocab
 
     # Initialize data module
-    data_module = OpenWebTextDataModule(batch_size=BATCH_SIZE, val_batch_size=2)  # Very small validation batch size
+    data_module = OpenWebTextDataModule(
+        batch_size=BATCH_SIZE, val_batch_size=2
+    )  # Very small validation batch size
 
     # Check if a previous model exists to load based on hyperparameter
-    checkpoint_path = './models/model_v6_flash_attn.pth'
+    checkpoint_path = "./models/model_v6_flash_attn.pth"
     if LOAD_PREVIOUS and os.path.exists(checkpoint_path):
         print("Loading previous checkpoint...")
         # Load the model state dict manually to initialize the model
         model = GPT(vocab_size=vocab_size)
-        state_dict = torch.load(checkpoint_path, map_location='cpu')
+        state_dict = torch.load(checkpoint_path, map_location="cpu")
         # Use strict=False to handle potential mismatches
         model.load_state_dict(state_dict, strict=False)
         print("Previous checkpoint loaded successfully")
@@ -320,15 +335,15 @@ def main():
 
     # Callbacks
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        dirpath='models/',
-        filename='gpt-v7-{epoch:02d}-{step}-{val_loss:.2f}',
+        dirpath="models/",
+        filename="gpt-v7-{epoch:02d}-{step}-{val_loss:.2f}",
         save_top_k=2,
-        monitor='val_loss',
-        mode='min',
+        monitor="val_loss",
+        mode="min",
         every_n_train_steps=500,  # Save checkpoint every 500 steps
     )
 
-    lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval='step')
+    lr_monitor = pl.callbacks.LearningRateMonitor(logging_interval="step")
 
     # Initialize TensorBoard logger
     logger = TensorBoardLogger("tb_logs", name="gpt-v7-lightning")
@@ -340,12 +355,12 @@ def main():
         limit_val_batches=EVAL_ITERS,  # Limit the number of validation batches
         callbacks=[checkpoint_callback, lr_monitor],
         logger=logger,  # Add TensorBoard logger
-        precision='16-mixed',  # Use mixed precision for faster training
+        precision="16-mixed",  # Use mixed precision for faster training
         accumulate_grad_batches=1,  # Gradient accumulation if needed
         gradient_clip_val=1.0,  # Gradient clipping for stability
-        devices='auto',  # Use auto to detect available devices (GPU, TPU, CPU)
-        accelerator='auto',  # Auto-detect best accelerator
-        strategy='auto',  # Auto-detect best strategy
+        devices="auto",  # Use auto to detect available devices (GPU, TPU, CPU)
+        accelerator="auto",  # Auto-detect best accelerator
+        strategy="auto",  # Auto-detect best strategy
         log_every_n_steps=10,
         enable_progress_bar=True,
         deterministic=False,  # Set to True for reproducibility but may impact performance
@@ -367,7 +382,7 @@ def main():
         trainer.fit(model, datamodule=data_module)
 
         # Save final model after training
-        final_model_path = './models/model_v7_lightning.pth'
+        final_model_path = "./models/model_v7_lightning.pth"
         os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
         torch.save(model.state_dict(), final_model_path)
         print(f"\nModel state saved after training: {final_model_path}")
@@ -375,7 +390,7 @@ def main():
     except KeyboardInterrupt:
         if SAVE_ON_INTERRUPT:
             print("\nTraining interrupted by user. Saving model...")
-            final_model_path = './models/model_v7_lightning_interrupted.pth'
+            final_model_path = "./models/model_v7_lightning_interrupted.pth"
             os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
             torch.save(model.state_dict(), final_model_path)
             print(f"\nModel state saved: {final_model_path}")
@@ -385,7 +400,7 @@ def main():
     finally:
         if SAVE_ON_INTERRUPT:
             # Make sure final checkpoint is saved
-            final_model_path = './models/model_v7_lightning_final.pth'
+            final_model_path = "./models/model_v7_lightning_final.pth"
             os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
             torch.save(model.state_dict(), final_model_path)
             print(f"\nModel state saved in finally block: {final_model_path}")
