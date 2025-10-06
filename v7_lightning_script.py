@@ -11,6 +11,10 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
+# Boolean hyperparameters
+LOAD_PREVIOUS = True  # Load previous model checkpoint
+SAVE_ON_INTERRUPT = True  # Save model when training is interrupted
+
 # Hyperparameters as constants
 BATCH_SIZE = 24
 BLOCK_SIZE = 256
@@ -284,9 +288,9 @@ def main():
     # Initialize data module
     data_module = OpenWebTextDataModule(batch_size=BATCH_SIZE)
     
-    # Check if a previous model exists to load
+    # Check if a previous model exists to load based on hyperparameter
     checkpoint_path = './models/model_v6_flash_attn.pth'
-    if os.path.exists(checkpoint_path):
+    if LOAD_PREVIOUS and os.path.exists(checkpoint_path):
         print("Loading previous checkpoint...")
         # Load the model state dict manually to initialize the model
         model = GPT(vocab_size=vocab_size)
@@ -336,8 +340,33 @@ def main():
     except Exception as e:
         print(f"Could not compile model: {e}")
     
-    # Start training
-    trainer.fit(model, datamodule=data_module)
+    # Start training with interrupt handling
+    try:
+        trainer.fit(model, datamodule=data_module)
+        
+        # Save final model after training
+        final_model_path = './models/model_v7_lightning.pth'
+        os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
+        torch.save(model.state_dict(), final_model_path)
+        print(f"\nModel state saved after training: {final_model_path}")
+        
+    except KeyboardInterrupt:
+        if SAVE_ON_INTERRUPT:
+            print("\nTraining interrupted by user. Saving model...")
+            final_model_path = './models/model_v7_lightning_interrupted.pth'
+            os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
+            torch.save(model.state_dict(), final_model_path)
+            print(f"\nModel state saved: {final_model_path}")
+        else:
+            print("\nTraining interrupted by user. Model not saved.")
+    
+    finally:
+        if SAVE_ON_INTERRUPT:
+            # Make sure final checkpoint is saved
+            final_model_path = './models/model_v7_lightning_final.pth'
+            os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
+            torch.save(model.state_dict(), final_model_path)
+            print(f"\nModel state saved in finally block: {final_model_path}")
 
 
 if __name__ == "__main__":
