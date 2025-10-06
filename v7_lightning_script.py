@@ -20,8 +20,8 @@ BATCH_SIZE = 40
 BLOCK_SIZE = 256
 MAX_ITERS = int(160000 * 64 / BATCH_SIZE)
 LEARNING_RATE = 3e-4
-EVAL_INTERVAL = BATCH_SIZE/2
-EVAL_ITERS = 200
+EVAL_INTERVAL = 20  # Reduced from BATCH_SIZE/2
+EVAL_ITERS = 5  # Reduced significantly from 200
 N_EMBD = 384
 N_HEAD = 6
 N_LAYER = 6
@@ -30,7 +30,7 @@ SLIDING_WINDOW_LEN = 128
 
 
 class OpenWebTextDataset(Dataset):
-    def __init__(self, split="train", max_articles=None):
+    def __init__(self, split="train", max_articles=None, is_validation=False):
         self.dataset = load_dataset("Bingsu/openwebtext_20p")
         self.split = split
         self.data = self.dataset[split]
@@ -41,9 +41,13 @@ class OpenWebTextDataset(Dataset):
         # Set up encoding/decoding
         self.encoder = tiktoken.get_encoding("gpt2")
         self.vocab_size = self.encoder.n_vocab
+        self.is_validation = is_validation
 
     def __len__(self):
-        # Return a large virtual length to allow for many iterations
+        # Return a large virtual length to allow for many iterations for training
+        # For validation, return a smaller length to make it faster
+        if self.is_validation:
+            return 100  # Small validation dataset size
         return 10**9
 
     def __getitem__(self, idx):
@@ -258,16 +262,17 @@ class GPT(pl.LightningModule):
 
 
 class OpenWebTextDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size=BATCH_SIZE, num_workers=4):
+    def __init__(self, batch_size=BATCH_SIZE, val_batch_size=BATCH_SIZE//4, num_workers=4):
         super().__init__()
         self.batch_size = batch_size
+        self.val_batch_size = val_batch_size
         self.num_workers = num_workers
 
     def setup(self, stage=None):
         # Assign train/val datasets for use in dataloaders
-        self.train_dataset = OpenWebTextDataset(split="train")
+        self.train_dataset = OpenWebTextDataset(split="train", is_validation=False)
         # Using train split for validation since OpenWebText doesn't have validation
-        self.val_dataset = OpenWebTextDataset(split="train")
+        self.val_dataset = OpenWebTextDataset(split="train", is_validation=True)
 
     def train_dataloader(self):
         return DataLoader(
@@ -281,7 +286,7 @@ class OpenWebTextDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             self.val_dataset,
-            batch_size=self.batch_size,
+            batch_size=self.val_batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
             persistent_workers=True
@@ -294,7 +299,7 @@ def main():
     vocab_size = encoder.n_vocab
 
     # Initialize data module
-    data_module = OpenWebTextDataModule(batch_size=BATCH_SIZE)
+    data_module = OpenWebTextDataModule(batch_size=BATCH_SIZE, val_batch_size=2)  # Very small validation batch size
 
     # Check if a previous model exists to load based on hyperparameter
     checkpoint_path = './models/model_v6_flash_attn.pth'
@@ -326,6 +331,7 @@ def main():
     trainer = pl.Trainer(
         max_steps=MAX_ITERS,
         val_check_interval=EVAL_INTERVAL,
+        limit_val_batches=EVAL_ITERS,  # Limit the number of validation batches
         callbacks=[checkpoint_callback, lr_monitor],
         precision='16-mixed',  # Use mixed precision for faster training
         accumulate_grad_batches=1,  # Gradient accumulation if needed
